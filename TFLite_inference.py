@@ -3,12 +3,12 @@
 """
 optimized_inference_with_reference_postprocess.py
 
-优化后的 TFLite 推理脚本，集成参考的后处理代码：
-1. 文本编码（TFLite）
-2. 视觉检测（TFLite）
-3. 参考 PyTorch 实现的多尺度解码 + 归一化阈值 + NMS + 可视化
+Optimized TFLite inference script with integrated reference post-processing:
+1. Text encoding (TFLite)
+2. Visual detection (TFLite)
+3. PyTorch reference implementation: multi-scale decoding + normalized threshold + NMS + visualization
 
-依赖：
+Dependencies:
   pip install numpy tensorflow Pillow transformers torch torchvision opencv-python matplotlib
 """
 
@@ -26,24 +26,24 @@ import cv2
 import matplotlib.pyplot as plt
 
 # -----------------------------------------------------------------------------
-# 配置
+# Configuration
 # -----------------------------------------------------------------------------
 TEXT_ENCODER_TFLITE     = "text_encoder.tflite"
 VISUAL_DETECTOR_TFLITE  = "visual_detector.tflite"
-IMAGE_PATH              = "./sample_images/bottles.png"  
+IMAGE_PATH              = "./sample_images/bottles.png"
 TEST_TEXT               = "bottle"
 
-MIN_THRESH              = 0.05    # 原始分数最大值阈值
-NORM_THRESH             = 0.5     # 归一化后阈值
-NMS_IOU_THRESH          = 0.5     # NMS IOU 阈值
+MIN_THRESH              = 0.05    # Original score max threshold
+NORM_THRESH            = 0.5     # Normalized threshold
+NMS_IOU_THRESH         = 0.5     # NMS IOU threshold
 
-TARGET_SIZE             = (640, 640)  # 固定输入尺寸
+TARGET_SIZE            = (640, 640)  # Fixed input size
 
-# 单类别标签列表
+# Single class label list
 CLASS_NAMES = ["bottle"]
 
 # -----------------------------------------------------------------------------
-# 全局资源初始化
+# Global resource initialization
 # -----------------------------------------------------------------------------
 interpreter_te = None
 interpreter_vd = None
@@ -51,22 +51,22 @@ tokenizer = AutoTokenizer.from_pretrained("./tokenizer")  # 修改为本地token
 
 
 def init_interpreters():
-    """加载并缓存两个 TFLite Interpreter。"""
+    """Load and cache two TFLite Interpreters."""
     global interpreter_te, interpreter_vd
 
     if interpreter_te is None:
         if not os.path.isfile(TEXT_ENCODER_TFLITE):
-            print(f"[ERROR] 未找到 {TEXT_ENCODER_TFLITE}")
+            print(f"[ERROR] Cannot find {TEXT_ENCODER_TFLITE}")
             sys.exit(1)
         interpreter_te = tf.lite.Interpreter(model_path=TEXT_ENCODER_TFLITE)
         interpreter_te.allocate_tensors()
 
     if interpreter_vd is None:
         if not os.path.isfile(VISUAL_DETECTOR_TFLITE):
-            print(f"[ERROR] 未找到 {VISUAL_DETECTOR_TFLITE}")
+            print(f"[ERROR] Cannot find {VISUAL_DETECTOR_TFLITE}")
             sys.exit(1)
         interpreter_vd = tf.lite.Interpreter(model_path=VISUAL_DETECTOR_TFLITE)
-        # 延迟 allocate，待 resize 后再调用 allocate_tensors()
+        # Delayed allocation, call allocate_tensors() after resize
 
 
 # -----------------------------------------------------------------------------
@@ -74,9 +74,9 @@ def init_interpreters():
 # -----------------------------------------------------------------------------
 def load_image(image_path: str, target_size: Tuple[int, int] = TARGET_SIZE) -> Tuple[np.ndarray, np.ndarray]:
     """
-    读取图像并 resize 到 target_size，归一化到 [0,1]，
-    转换为 TFLite 期望的 NCHW numpy 数组格式。
-    返回：numpy.ndarray([1,3,640,640]), 原始RGB数组用于可视化
+    Read image, resize to target_size, normalize to [0,1],
+    convert to NCHW numpy array format for TFLite.
+    Returns: numpy.ndarray([1,3,640,640]), original RGB array for visualization
     """
     img_pil = Image.open(image_path).convert("RGB")
     img_resized = img_pil.resize(target_size)
@@ -87,8 +87,8 @@ def load_image(image_path: str, target_size: Tuple[int, int] = TARGET_SIZE) -> T
 
 def encode_text(text: str) -> np.ndarray:
     """
-    使用 TFLite 文本编码器将单条文本映射成特征向量。
-    返回形状为 [1, 1, 512] 的 float32 numpy 数组。
+    Use TFLite text encoder to map single text to feature vector.
+    Returns float32 numpy array with shape [1, 1, 512].
     """
     encoding = tokenizer(
         [text],
@@ -116,9 +116,9 @@ def encode_text(text: str) -> np.ndarray:
 
 def detect_image(image_np: np.ndarray, text_feats: np.ndarray) -> Tuple[np.ndarray, ...]:
     """
-    使用 TFLite 视觉检测器运行推理
-    返回: Tuple[cls_score_20x20, cls_score_40x40, cls_score_80x80,
-               bbox_pred_20x20, bbox_pred_40x40, bbox_pred_80x80]
+    Run inference using TFLite visual detector
+    Returns: Tuple[cls_score_20x20, cls_score_40x40, cls_score_80x80,
+                  bbox_pred_20x20, bbox_pred_40x40, bbox_pred_80x80]
     """
     input_details = interpreter_vd.get_input_details()
     output_details = interpreter_vd.get_output_details()
@@ -160,7 +160,7 @@ def post_process_reference(outputs: Tuple[np.ndarray, ...],
                          nms_thresh: float = NMS_IOU_THRESH
                          ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    参考实现的后处理函数
+    Reference post-processing implementation
     Args:
         outputs: (cls_20x20, cls_40x40, cls_80x80, bbox_20x20, bbox_40x40, bbox_80x80)
     """
@@ -239,7 +239,7 @@ def post_process_reference(outputs: Tuple[np.ndarray, ...],
         final_scores = torch.empty((0,))
         final_labels = torch.empty((0,), dtype=torch.long)
 
-    # 缩放回原图
+    # Scale back to original image
     H_orig, W_orig = image_rgb.shape[:2]
     scale_x = W_orig / TARGET_SIZE[0]
     scale_y = H_orig / TARGET_SIZE[1]
@@ -261,7 +261,7 @@ def visualize(image_rgb: np.ndarray,
               class_names: List[str],
               save_path: str = "detection_result.jpg") -> None:
     """
-    在原始 RGB 图像上绘制检测结果并保存/显示。
+    Draw detection results on original RGB image and save/display.
     """
     img = image_rgb.copy()
     H, W = img.shape[:2]
@@ -289,7 +289,7 @@ def visualize(image_rgb: np.ndarray,
                     thickness, cv2.LINE_AA)
 
     cv2.imwrite(save_path, img)
-    print(f"[INFO] 检测结果保存为 {save_path}")
+    print(f"[INFO] Detection result saved as {save_path}")
 
     plt.figure(figsize=(10, 8))
     plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
@@ -302,15 +302,15 @@ def visualize(image_rgb: np.ndarray,
 # 主流程
 # -----------------------------------------------------------------------------
 def main():
-    # 检查模型和图像文件
+    # Check model and image files
     if not os.path.isfile(TEXT_ENCODER_TFLITE):
-        print(f"[ERROR] 找不到 {TEXT_ENCODER_TFLITE}")
+        print(f"[ERROR] Cannot find {TEXT_ENCODER_TFLITE}")
         sys.exit(1)
     if not os.path.isfile(VISUAL_DETECTOR_TFLITE):
-        print(f"[ERROR] 找不到 {VISUAL_DETECTOR_TFLITE}")
+        print(f"[ERROR] Cannot find {VISUAL_DETECTOR_TFLITE}")
         sys.exit(1)
     if not os.path.isfile(IMAGE_PATH):
-        print(f"[ERROR] 找不到测试图像: {IMAGE_PATH}")
+        print(f"[ERROR] Cannot find test image: {IMAGE_PATH}")
         sys.exit(1)
 
     # 初始化 Interpreters
