@@ -1,58 +1,75 @@
-# YOLO-World TFLite Inference
+# YOLO-World TFLite Inference Demo
 
-## Models
+## Overview
+This demo shows how to perform object detection using the TFLite version of YOLO-World model. It supports multi-object detection with custom text prompts.
 
-### text_encoder_tf
-- **Input:** text token
-- **Output:** text_feature
-
-### visual_detector_tf
-- **Input:** text feature and image data
-- **Output:** initial prediction
+## Pre-trained Models
+The pre-trained model weights can be found in [YOLO-World/configs/pretrain_v1/README.md] or [./pretrained_v1.md]
 
 ## Directory Structure
-
 ```
-.
-├─sample_images/        # Test images
-├─text_encoder_tf/      # Text encoder model
-├─tokenizer/           # CLIP tokenizer files
-└─visual_detector_tf/   # Visual detection model
+demo/TFLite_demo/
+├── export.py               # Model export script
+├── TFLite_inference.py    # TFLite inference implementation
+├── README.md              # Documentation
+├── sample_images/         # Example images
+│   ├── bottles.png
+│   ├── bus.jpg
+│   ├── desk.png
+│   └── ...
+└── tokenizer/            # CLIP tokenizer files
+    ├── merges.txt
+    ├── tokenizer.json
+    ├── vocab.json
+    └── ...
 ```
 
-## inference process
-- text -> tokenizer -> text encoding -> text feature
-- image -> preprocess -> visual input
-- text feature + visual input -> visual inference -> initial pred: 3 levels of (boxes, scores)
-- initial pred -> decoding -> filter(NMS) -> final pred: boxes, scores 
+## Model Components
 
-## Usage
+### Text Encoder
+- Input: Text tokens
+- Output: Text features
+- Location: `text_encoder_tf/` directory
 
+### Visual Detector
+- Input: Text features and image data
+- Output: Initial predictions
+- Location: `visual_detector_tf/` directory
+
+## Inference Pipeline
+1. Text Processing: Text → Tokenizer → Text Encoding → Text Features
+2. Image Processing: Image → Preprocessing → Visual Input
+3. Model Inference: Text Features + Visual Input → Visual Inference → Initial Predictions (3 levels of boxes and scores)
+4. Post-processing: Initial Predictions → Decoding → NMS Filtering → Final Predictions
+
+## Usage Example
 ```python
+# Define detection targets and input image
 test_texts = ["champagne bottle", "red bottle", "plastic spoon"]
 test_image = "sample_images/desk_test.png"
 
-results = yolo_world_detect(test_texts,
-                             test_image,
-                             output_path="output.jpg",
-                             score_threshold=0.05,
-                             nms_threshold=0.5,
-                             confidence_threshold=0.25
-                            )
+# Perform detection
+results = yolo_world_detect(
+    texts=test_texts,
+    image_path=test_image,
+    output_path="output.jpg",
+    score_threshold=0.05,    # Raw score threshold
+    nms_threshold=0.5,       # NMS threshold
+    confidence_threshold=0.25 # Confidence threshold
+)
 ```
 
 ## Parameters
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `texts` | `List[str]` | List of target texts for detection | Required |
+| `image_path` | `str` | Input image path | Required |
+| `output_path` | `str` | Output image save path | "output.jpg" |
+| `score_threshold` | `float` | Detection score threshold | 0.05 |
+| `nms_threshold` | `float` | NMS threshold | 0.5 |
+| `confidence_threshold` | `float` | Confidence threshold | 0.25 |
 
-| Parameter   | Type        | Description                     | Default      |
-|-------------|-------------|---------------------------------|--------------|
-| `texts`     | `List[str]` | List of detection target texts  | Required     |
-| `image_path`| `str`       | Input image path                | Required     |
-| `min_thresh`| `float`     | Original score threshold        | 0.05         |
-| `norm_thresh`| `float`    | Normalized score threshold      | 0.85         |
-| `output_path`| `str`      | Output image save path          | "output.jpg" |
-
-## Output
-
+## Return Value
 The function returns a dictionary containing:
 
 ### Detection Results
@@ -67,24 +84,14 @@ The function returns a dictionary containing:
 - `visualization`: Visualization result image
 
 ## Technical Notes
+1. Image Preprocessing Requirements:
+   - Resolution: 640x640
+   - Normalization: [0, 1]
+   - Format conversion: HWC RGB → CHW
 
-### CLIP Tokenizer
-```
-Recommendation: Use Hugging Face's tokenizers API (C++ implementation)
-```
-
-### Image Preprocessing
-Requirements:
-- Resolution: 640x640
-- Normalization: [0, 1]
-- Format conversion: HWC RGB → CHW
-
-### NMS Implementation
-Current status:
-- Uses PyTorch's `torchvision.ops.nms`
-- Not suitable for Android deployment
-- Need custom implementation for mobile
-
-Reference implementation:
-- Source: `YOLO-World/deploy/easydeploy/nms`
-- Official TFLite demo: `YOLO-World/deploy/tflite_demo.py`
+2. NMS Implementation:
+   - Currently using PyTorch's torchvision.ops.nms
+   - Custom implementation needed for mobile deployment
+   - Reference implementations:
+     - YOLO-World/deploy/easydeploy/nms
+     - YOLO-World/deploy/tflite_demo.py
