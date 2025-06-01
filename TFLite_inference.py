@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-optimized_inference_with_reference_postprocess.py
-
-Optimized TFLite inference script with integrated reference post-processing:
-1. Text encoding (TFLite)
-2. Visual detection (TFLite)
-3. PyTorch reference implementation: multi-scale decoding + normalized threshold + NMS + visualization
-
-Dependencies:
-  pip install numpy tensorflow Pillow transformers torch torchvision opencv-python matplotlib
-"""
-
 import os
 import sys
 from typing import Tuple, List
@@ -25,9 +11,6 @@ from transformers import AutoTokenizer
 import cv2
 import matplotlib.pyplot as plt
 
-# -----------------------------------------------------------------------------
-# Configuration
-# -----------------------------------------------------------------------------
 TEXT_ENCODER_TFLITE     = "text_encoder.tflite"
 VISUAL_DETECTOR_TFLITE  = "visual_detector.tflite"
 IMAGE_PATH              = "./sample_images/bottles.png"
@@ -42,12 +25,9 @@ TARGET_SIZE            = (640, 640)  # Fixed input size
 # Single class label list
 CLASS_NAMES = ["bottle"]
 
-# -----------------------------------------------------------------------------
-# Global resource initialization
-# -----------------------------------------------------------------------------
 interpreter_te = None
 interpreter_vd = None
-tokenizer = AutoTokenizer.from_pretrained("./tokenizer")  # 修改为本地tokenizer路径
+tokenizer = AutoTokenizer.from_pretrained("./tokenizer")  
 
 
 def init_interpreters():
@@ -69,9 +49,6 @@ def init_interpreters():
         # Delayed allocation, call allocate_tensors() after resize
 
 
-# -----------------------------------------------------------------------------
-# 图像与文本预处理
-# -----------------------------------------------------------------------------
 def load_image(image_path: str, target_size: Tuple[int, int] = TARGET_SIZE) -> Tuple[np.ndarray, np.ndarray]:
     """
     Read image, resize to target_size, normalize to [0,1],
@@ -126,7 +103,6 @@ def detect_image(image_np: np.ndarray, text_feats: np.ndarray) -> Tuple[np.ndarr
     txt_masks = np.ones((1, 1), dtype=np.float32)
     name_to_idx = {d["name"]: d["index"] for d in input_details}
 
-    # Resize 动态输入
     interpreter_vd.resize_tensor_input(name_to_idx["serving_default_txt_masks:0"], txt_masks.shape)
     interpreter_vd.resize_tensor_input(name_to_idx["serving_default_text_feats:0"], text_feats.shape)
     interpreter_vd.resize_tensor_input(name_to_idx["serving_default_image:0"], image_np.shape)
@@ -137,22 +113,16 @@ def detect_image(image_np: np.ndarray, text_feats: np.ndarray) -> Tuple[np.ndarr
     interpreter_vd.set_tensor(name_to_idx["serving_default_image:0"], image_np)
     interpreter_vd.invoke()
 
-    # 直接返回排序好的输出元组
     outputs = []
     for detail in output_details:
         tensor = interpreter_vd.get_tensor(detail["index"])
         print(f"\n[DEBUG] Output shape: {tensor.shape}, min/max: {tensor.min():.4f}/{tensor.max():.4f}")
         outputs.append(tensor)
-    
-    # 按特征图大小排序: [20x20, 40x40, 80x80]
-    cls_outputs = [outputs[5], outputs[4], outputs[2]]   # 分类输出
-    bbox_outputs = [outputs[3], outputs[0], outputs[1]]  # 边界框输出
+
+    cls_outputs = [outputs[5], outputs[4], outputs[2]]   
+    bbox_outputs = [outputs[3], outputs[0], outputs[1]]  
     return tuple(cls_outputs + bbox_outputs)
 
-
-# -----------------------------------------------------------------------------
-# 后处理：参考代码实现
-# -----------------------------------------------------------------------------
 def post_process_reference(outputs: Tuple[np.ndarray, ...],
                          image_rgb: np.ndarray,
                          min_thresh: float = MIN_THRESH,
@@ -167,7 +137,6 @@ def post_process_reference(outputs: Tuple[np.ndarray, ...],
     all_boxes = []
     all_cls_probs = []
     
-    # 解包输出
     cls_outputs = outputs[:3]    # 20x20, 40x40, 80x80
     bbox_outputs = outputs[3:]   # 20x20, 40x40, 80x80
     
@@ -175,11 +144,9 @@ def post_process_reference(outputs: Tuple[np.ndarray, ...],
         cls_score = torch.from_numpy(cls_score_np).float()
         bbox_pred = torch.from_numpy(bbox_pred_np).float()
 
-        # 分类分数 shape: [1, C, H, W] → sigmoid → [C, H, W] → permute → [H, W, C] → reshape → [H*W, C]
         cls_prob = torch.sigmoid(cls_score)[0].permute(1, 2, 0).reshape(-1, cls_score.shape[1])
         all_cls_probs.append(cls_prob)  # list of [H*W, C]
 
-        # 边框回归 shape: [1,4,H,W] → [4, H, W]
         bbox = bbox_pred[0]
         tx, ty, tr, tb = bbox[0], bbox[1], bbox[2], bbox[3]
 
@@ -250,10 +217,6 @@ def post_process_reference(outputs: Tuple[np.ndarray, ...],
 
     return scaled_boxes, final_scores, final_labels
 
-
-# -----------------------------------------------------------------------------
-# 可视化函数
-# -----------------------------------------------------------------------------
 def visualize(image_rgb: np.ndarray,
               boxes: torch.Tensor,
               scores: torch.Tensor,
@@ -272,10 +235,8 @@ def visualize(image_rgb: np.ndarray,
         x1, y1, x2, y2 = box.int().tolist()
         label_text = f"{class_names[cls_id]} {score:.2f}"
 
-        # 绘制框
         cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), thickness)
 
-        # 绘制标签背景
         (text_w, text_h), baseline = cv2.getTextSize(label_text,
                                                      cv2.FONT_HERSHEY_SIMPLEX,
                                                      font_scale, thickness)
@@ -283,7 +244,6 @@ def visualize(image_rgb: np.ndarray,
                       (x1, y1 - text_h - baseline - 4),
                       (x1 + text_w + 4, y1),
                       (0, 255, 0), -1)
-        # 绘制文字
         cv2.putText(img, label_text, (x1 + 2, y1 - baseline - 2),
                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0),
                     thickness, cv2.LINE_AA)
@@ -297,10 +257,6 @@ def visualize(image_rgb: np.ndarray,
     plt.title("Detection Result")
     plt.show()
 
-
-# -----------------------------------------------------------------------------
-# 主流程
-# -----------------------------------------------------------------------------
 def main():
     # Check model and image files
     if not os.path.isfile(TEXT_ENCODER_TFLITE):
@@ -313,38 +269,32 @@ def main():
         print(f"[ERROR] Cannot find test image: {IMAGE_PATH}")
         sys.exit(1)
 
-    # 初始化 Interpreters
     init_interpreters()
 
-    # 文本编码
-    print("\n=== 文本编码 ===")
+    print("\ntext encoding")
     text_feats = encode_text(TEST_TEXT)  # [1,1,512]
     print(f"text_feats.shape = {text_feats.shape}")
 
-    # 图像预处理
-    print("\n=== 图像预处理 ===")
-    image_np, image_rgb = load_image(IMAGE_PATH)  # image_rgb 用于可视化
+    print("\npreprocess")
+    image_np, image_rgb = load_image(IMAGE_PATH) 
     print(f"image_np.shape = {image_np.shape}")
 
-    # 视觉检测
-    print("\n=== 视觉检测 ===")
+    print("\nvisual detection")
     outputs = detect_image(image_np, text_feats)
     print(f"\n检测到 {len(outputs)} 个特征图输出")
     for i, tensor in enumerate(outputs):
         print(f"  Output {i}: shape={tensor.shape}")
     
-    # 后处理
-    print("\n=== 后处理 ===")
+    print("\npost process")
     scaled_boxes, final_scores, final_labels = post_process_reference(outputs, image_rgb)
     if scaled_boxes.numel() == 0:
-        print("[INFO] 未检测到任何目标。")
+        print("No valid boxes detected after post-processing.")
         return
 
-    print(f"[INFO] 检测到 {scaled_boxes.shape[0]} 个目标")
+    print(f"{scaled_boxes.shape[0]} boxes detected after post-processing:")
     for i, score in enumerate(final_scores, start=1):
         print(f"  {i}. {TEST_TEXT} (conf={score:.2f})")
 
-    # 可视化
     visualize(image_rgb, scaled_boxes, final_scores, final_labels, CLASS_NAMES)
 
 
