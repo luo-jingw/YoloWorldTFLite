@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 # -----------------------------------------------------------------------------
 TEXT_ENCODER_TFLITE     = "text_encoder.tflite"
 VISUAL_DETECTOR_TFLITE  = "visual_detector.tflite"
-IMAGE_PATH              = "demo/sample_images/bottles.png"
+IMAGE_PATH              = "./sample_images/bottles.png"  
 TEST_TEXT               = "bottle"
 
 MIN_THRESH              = 0.05    # 原始分数最大值阈值
@@ -47,7 +47,7 @@ CLASS_NAMES = ["bottle"]
 # -----------------------------------------------------------------------------
 interpreter_te = None
 interpreter_vd = None
-tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+tokenizer = AutoTokenizer.from_pretrained("./tokenizer")  # 修改为本地tokenizer路径
 
 
 def init_interpreters():

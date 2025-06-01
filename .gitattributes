@@ -1,2 +1,0 @@
-text_encoder_tf/saved_model.pb filter=lfs diff=lfs merge=lfs -text
-visual_detector_tf/saved_model.pb filter=lfs diff=lfs merge=lfs -text

@@ -1,28 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-export_and_infer_fixed_mmengine.py
-
-This script performs the following tasks:
-1. Load pre-trained YOLO-World model using MMEngine + MMDet
-2. Export two ONNX models from PyTorch:
-   - text_encoder.onnx: fixed text class count (N=1), output shape [1,1,512]
-   - visual_detector.onnx: fixed batch size (B=1) and text class count (N=1),
-     with hardcoded Pooling parameters to avoid dimension mismatch in TFLite concat
-3. Convert ONNX models to TensorFlow SavedModel and export to TFLite:
-   - text_encoder.tflite: input "[1,77] → output [1,1,512]" fixed size
-   - visual_detector.tflite: input "[1,3,640,640], [1,1,512], [1,1]" fixed size
-4. Run inference using exported TFLite models on sample image (dog.jpeg) and single text ("cat")
-
-Prerequisites:
-- Python packages: torch, torchvision, transformers, mmengine, mmdet, onnx, onnx-tf, tensorflow, onnxruntime, Pillow, numpy
-- Test image dog.jpeg in the same directory (or modify IMAGE_PATH)
-- YOLO-World pretrained weights in "pretrained_weights/" directory
-- Config file path and weight filename match those in the script
-"""
 
 import os
-import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -34,7 +13,7 @@ import onnxruntime as ort
 from PIL import Image
 import numpy as np
 
-# 禁用 GPU，避免显存占满导致转换/加载失败
+# Disable GPU to avoid memory overflow during conversion/loading
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 from mmengine.config import Config
@@ -43,10 +22,10 @@ from mmengine.runner import Runner
 from mmdet.registry import MODELS
 
 cfg = Config.fromfile(
-    "configs/pretrain_v1/yolo_world_x_dual_vlpan_l2norm_2e-3_100e_4x8gpus_obj365v1_goldg_train_lvis_minival.py"
+    "../../configs/yolo_world_x_dual_vlpan_l2norm_2e-3_100e_4x8gpus_obj365v1_goldg_train_lvis_minival.py"
 )
 cfg.work_dir = "."
-cfg.load_from = "pretrained_weights/yolo_world_x_clip_base_dual_vlpan_2e-3adamw_32xb16_100e_o365_goldg_cc3mlite_train_pretrained-8cf6b025.pth"
+cfg.load_from = "../../pretrained_models/yolo_world_x_clip_base_dual_vlpan_2e-3adamw_32xb16_100e_o365_goldg_cc3mlite_train_pretrained-8cf6b025.pth"
 runner = Runner.from_cfg(cfg)
 runner.call_hook("before_run")
 runner.load_or_resume()
@@ -54,12 +33,8 @@ pipeline = cfg.test_dataloader.dataset.pipeline
 runner.pipeline = Compose(pipeline)
 runner.model.eval()
 
-
-cfg = Config.fromfile(
-        "configs/pretrain_v1/yolo_world_x_dual_vlpan_l2norm_2e-3_100e_4x8gpus_obj365v1_goldg_train_lvis_minival.py"
-    )
 model = MODELS.build(cfg.model)
-checkpoint = torch.load('pretrained_weights/yolo_world_x_clip_base_dual_vlpan_2e-3adamw_32xb16_100e_o365_goldg_cc3mlite_train_pretrained-8cf6b025.pth', map_location='cpu')
+checkpoint = torch.load('./pretrained_models/yolo_world_x_clip_base_dual_vlpan_2e-3adamw_32xb16_100e_o365_goldg_cc3mlite_train_pretrained-8cf6b025.pth', map_location='cpu')
 model.load_state_dict(checkpoint['state_dict'])
 
 # -----------------------------------------------------------------------------
@@ -72,12 +47,12 @@ VISUAL_DETECTOR_SAVED_DIR = "visual_detector_saved_model"
 TEXT_ENCODER_TFLITE     = "text_encoder.tflite"
 VISUAL_DETECTOR_TFLITE  = "visual_detector.tflite"
 
-# 测试图像与文本
-IMAGE_PATH  = "dog.jpeg"          # 测试用图像路径
-TEST_TEXT   = "cat"               # 文本类别固定为1
+# Test image and text
+IMAGE_PATH  = "./sample_images/bottles.png"          # Test image path
+TEST_TEXT   = "bottle"                              # Fixed single text class
 
 # -----------------------------------------------------------------------------
-# 定义 PyTorch Wrapper：文本编码器（固定 N=1）
+# Define PyTorch Wrapper: Text Encoder (fixed N=1)
 # -----------------------------------------------------------------------------
 class TextEncoderWrapper(nn.Module):
     """
@@ -94,10 +69,10 @@ class TextEncoderWrapper(nn.Module):
         text_feat = outputs[0]               # [1, 512]
         text_feat = F.normalize(text_feat, p=2, dim=-1)
         text_feat = text_feat.unsqueeze(0)   # [1, 1, 512]
-        return text_feat                     # 返回三维张量
+        return text_feat                     # return 3D tensor
 
 # -----------------------------------------------------------------------------
-# 定义 PyTorch Wrapper：视觉检测器（固定 batch=1, N=1，并硬编码 Pooling 参数）
+# Define PyTorch Wrapper: Visual Detector (fixed batch=1, N=1, and hardcoded Pooling parameters)
 # -----------------------------------------------------------------------------
 class VisualDetectorWrapper(nn.Module):
     """
@@ -119,7 +94,7 @@ class VisualDetectorWrapper(nn.Module):
         self.neck = model.neck
         self.head_module = model.bbox_head.head_module
 
-        # 将三层 Pooling 固定为常量
+        # Fix three Pooling layers as constants
         pools = self.neck.text_enhancer.image_pools
         pools[0] = nn.MaxPool2d(kernel_size=(27, 27), stride=(27, 27), padding=(1, 1))
         pools[1] = nn.MaxPool2d(kernel_size=(13, 13), stride=(13, 13), padding=(1, 1))
@@ -140,7 +115,7 @@ class VisualDetectorWrapper(nn.Module):
         )
 
 # -----------------------------------------------------------------------------
-# 步骤1 & 2：导出 text_encoder.onnx 并转换为 TFLite
+# Step 1 & 2: Export text_encoder.onnx and convert to TFLite
 # -----------------------------------------------------------------------------
 def export_text_encoder_to_onnx_and_tflite():
     """
@@ -152,7 +127,7 @@ def export_text_encoder_to_onnx_and_tflite():
 
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
     encoding = tokenizer(
-        [TEST_TEXT],            # 仅一个文本
+        [TEST_TEXT],            # Single text only
         return_tensors="pt",
         padding="max_length",
         truncation=True,
@@ -189,7 +164,7 @@ def export_text_encoder_to_onnx_and_tflite():
     print(f"[DONE] Generated {TEXT_ENCODER_TFLITE}")
 
 # -----------------------------------------------------------------------------
-# 步骤3 & 4：导出 visual_detector.onnx 并转换为 TFLite  
+# Step 3 & 4: Export visual_detector.onnx and convert to TFLite  
 # -----------------------------------------------------------------------------
 def export_visual_detector_to_onnx_and_tflite():
     """
@@ -235,14 +210,14 @@ def export_visual_detector_to_onnx_and_tflite():
     print(f"[DONE] Generated {VISUAL_DETECTOR_TFLITE}")
 
 # -----------------------------------------------------------------------------
-# 步骤5：使用 TFLite 模型进行推理测试（全固定尺寸）
+# Step 5: Run inference test with TFLite models (all fixed size)
 # -----------------------------------------------------------------------------
 def run_tflite_inference():
     """Run TFLite inference - moved to TFLite_inference.py"""
     pass
 
 # -----------------------------------------------------------------------------
-# 主程序入口
+# Main program entry
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     export_text_encoder_to_onnx_and_tflite()

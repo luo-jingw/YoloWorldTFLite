@@ -3,7 +3,8 @@
 ## Overview
 This demo shows how to perform object detection using the TFLite version of YOLO-World model. It supports multi-object detection with custom text prompts.
 
-**Input Constraints:**
+**Important Notes:**
+- The export script must be run from YOLO-World root directory to access custom model components
 - One text prompt at a time
 - One image at a time
 

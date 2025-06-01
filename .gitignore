@@ -1,0 +1,13 @@
+# TFLite model files
+*.tflite
+*.onnx
+
+# TensorFlow SavedModel directories
+text_encoder_saved_model/
+visual_detector_saved_model/
+text_encoder_tf/
+visual_detector_tf/
+
+# Python cache
+__pycache__/
+*.py[cod]
