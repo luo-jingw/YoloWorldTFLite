@@ -36,45 +36,56 @@ def yolo_world_detect(texts, image_path, output_path="output.jpg",
         tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
         tokenizer.save_pretrained("tokenizer")
 
-    # Load tf models
-    text_encoder_tf = tf.saved_model.load("text_encoder_tf")
-    text_infer = text_encoder_tf.signatures["serving_default"]
+    # Load TFLite text encoder
+    text_interpreter = tf.lite.Interpreter(model_path="text_encoder.tflite")
+    text_input_details = text_interpreter.get_input_details()
+    text_output_details = text_interpreter.get_output_details()
+
+    # Load tf models for visual detection
     vidual_detector_tf = tf.saved_model.load("visual_detector_tf")
     visual_infer = vidual_detector_tf.signatures["serving_default"]
     
     time_stamps[1] = time.time()
 
-    ### Inference 
-    ### text -> tokenizer -> text encoding -> text feature
-    ### image -> preprocess -> visual input
-    ### text feature + visual input -> visual inference -> initial pred: 3 levels of (boxes, scores)
-    ### initial pred -> decoding -> filter(NMS) -> final pred: boxes, scores 
-
     # tokenize texts
-    # this process does not depend on learnable parameters
-    text_tokens = tokenizer(
+    encoding = tokenizer(
         texts,
-        return_tensors="pt",
+        return_tensors="np",
         padding="max_length",
         truncation=True,
         max_length=77
     )
-    
-    # text encoding -> output [num_classes, 512]
-    text_output = text_infer(
-        input_ids=text_tokens["input_ids"],
-        attention_mask=text_tokens["attention_mask"]
-    )
+    input_ids = encoding["input_ids"].astype(np.int64)
+    attention_mask = encoding["attention_mask"].astype(np.int64)
+
+    # resize dynamic input
+    for detail in text_input_details:
+        name = detail["name"]
+        if "input_ids" in name:
+            text_interpreter.resize_tensor_input(detail["index"], input_ids.shape)
+        elif "attention_mask" in name:
+            text_interpreter.resize_tensor_input(detail["index"], attention_mask.shape)
+    text_interpreter.allocate_tensors()
+
+    # set input
+    for detail in text_input_details:
+        name = detail["name"]
+        if "input_ids" in name:
+            text_interpreter.set_tensor(detail["index"], input_ids)
+        elif "attention_mask" in name:
+            text_interpreter.set_tensor(detail["index"], attention_mask)
+
+    # run inference
+    text_interpreter.invoke()
+    text_feat = text_interpreter.get_tensor(text_output_details[0]["index"])  # [N, 512]
+    text_feats = text_feat[np.newaxis, :, :]  # [1, N, 512]
+    text_masks = np.ones((1, text_feats.shape[1]), dtype=np.float32)
 
     time_stamps[2] = time.time()
 
     print("--------------------------------")
-    for k, v in text_output.items():
-        print(f"{k}: shape={v.shape}")
-        text_feat = v.numpy()
+    print(f"text_feats shape: {text_feats.shape}")
     print("--------------------------------")
-    text_feats = text_feat[np.newaxis, :, :]
-    text_masks = np.ones((1, text_feats.shape[1]), dtype=np.float32)
 
     # load and preprocess image
     image_bgr = cv.imread(image_path)
