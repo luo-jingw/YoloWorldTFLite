@@ -3,6 +3,10 @@
 ## Overview
 This demo shows how to perform object detection using the TFLite version of YOLO-World model. It supports multi-object detection with custom text prompts.
 
+**Input Constraints:**
+- One text prompt at a time
+- One image at a time
+
 ## Pre-trained Models
 The pre-trained model weights can be found in [YOLO-World/configs/pretrain_v1/README.md] or [./pretrained_v1.md]
 
@@ -44,9 +48,9 @@ demo/TFLite_demo/
 
 ## Usage Example
 ```python
-# Define detection targets and input image
-test_texts = ["champagne bottle", "red bottle", "plastic spoon"]
-test_image = "sample_images/desk_test.png"
+# Define single detection target and single input image
+test_texts = ["champagne bottle"]  # Only one text prompt supported
+test_image = "sample_images/desk_test.png"  # Single image input
 
 # Perform detection
 results = yolo_world_detect(

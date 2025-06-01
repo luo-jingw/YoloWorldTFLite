@@ -3,21 +3,22 @@
 """
 export_and_infer_fixed_mmengine.py
 
-此脚本完成以下任务：
-1. 使用 MMEngine + MMDet 加载预训练的 YOLO-World 模型。
-2. 从该 PyTorch 模型导出两个 ONNX：
-   - text_encoder.onnx：文本类别数固定为1，输出 [1,1,512]
-   - visual_detector.onnx：图像 batch 固定为1、文本类别数固定为1，并且在导出时将 Pooling 参数硬编码为常量，避免 TFLite 将动态 Pooling 折叠后导致 concat 维度不匹配。
-3. 将上述 ONNX 模型转换为 TensorFlow SavedModel，并导出到 TFLite：
-   - text_encoder.tflite：输入 “[1,77] → 输出 [1,1,512]” 全尺寸固定
-   - visual_detector.tflite：输入 “[1,3,640,640], [1,1,512], [1,1]” 全尺寸固定
-4. 使用导出的 TFLite 模型对示例图像（dog.jpeg）和单文本（"cat"）进行推理并打印输出张量形状。
+This script performs the following tasks:
+1. Load pre-trained YOLO-World model using MMEngine + MMDet
+2. Export two ONNX models from PyTorch:
+   - text_encoder.onnx: fixed text class count (N=1), output shape [1,1,512]
+   - visual_detector.onnx: fixed batch size (B=1) and text class count (N=1),
+     with hardcoded Pooling parameters to avoid dimension mismatch in TFLite concat
+3. Convert ONNX models to TensorFlow SavedModel and export to TFLite:
+   - text_encoder.tflite: input "[1,77] → output [1,1,512]" fixed size
+   - visual_detector.tflite: input "[1,3,640,640], [1,1,512], [1,1]" fixed size
+4. Run inference using exported TFLite models on sample image (dog.jpeg) and single text ("cat")
 
-使用前请确认：
-- 安装了以下 Python 包：torch, torchvision, transformers, mmengine, mmdet, onnx, onnx-tf, tensorflow, onnxruntime, Pillow, numpy
-- 在同目录下有名为 dog.jpeg 的测试图像（或修改 IMAGE_PATH 为实际路径）
-- 已将 YOLO-World 预训练权重文件放在 “pretrained_weights/” 目录下
-- 配置文件路径与权重文件名与脚本中的一致
+Prerequisites:
+- Python packages: torch, torchvision, transformers, mmengine, mmdet, onnx, onnx-tf, tensorflow, onnxruntime, Pillow, numpy
+- Test image dog.jpeg in the same directory (or modify IMAGE_PATH)
+- YOLO-World pretrained weights in "pretrained_weights/" directory
+- Config file path and weight filename match those in the script
 """
 
 import os
@@ -62,7 +63,7 @@ checkpoint = torch.load('pretrained_weights/yolo_world_x_clip_base_dual_vlpan_2e
 model.load_state_dict(checkpoint['state_dict'])
 
 # -----------------------------------------------------------------------------
-# 全局文件名配置
+# Global filename configuration
 # -----------------------------------------------------------------------------
 TEXT_ENCODER_ONNX       = "text_encoder.onnx"
 VISUAL_DETECTOR_ONNX    = "visual_detector.onnx"
@@ -80,9 +81,9 @@ TEST_TEXT   = "cat"               # 文本类别固定为1
 # -----------------------------------------------------------------------------
 class TextEncoderWrapper(nn.Module):
     """
-    只包含 CLIP 文本编码器部分，将输出固定为 [1,1,512]
-    输入：input_ids ([1, seq_len]), attention_mask ([1, seq_len])
-    输出：text_feats ([1, 1, 512])，已做 L2 归一化
+    CLIP text encoder only, with fixed output shape [1,1,512]
+    Input: input_ids ([1, seq_len]), attention_mask ([1, seq_len])
+    Output: text_feats ([1, 1, 512]), L2 normalized
     """
     def __init__(self, model):
         super().__init__()
@@ -100,14 +101,14 @@ class TextEncoderWrapper(nn.Module):
 # -----------------------------------------------------------------------------
 class VisualDetectorWrapper(nn.Module):
     """
-    视觉检测器部分，输入：
+    Visual detector component, inputs:
       image      : [1, 3, 640, 640]
-      text_feats : [1, 1, 512]
+      text_feats : [1, 1, 512] 
       txt_masks  : [1, 1]
-    输出：
+    Outputs:
       cls_score_i: [1, 1, Hi, Wi]
       bbox_pred_i: [1, Ai*4, Hi, Wi]
-    在 __init__ 中将原先 dynamic pooling 固定为针对 80×80、40×40、20×20 的常量：
+    Hardcoded Pooling parameters for 80×80, 40×40, 20×20 in __init__:
       - 80→27: kernel=27,pad=1,stride=27
       - 40→13: kernel=13,pad=1,stride=13
       - 20→7:  kernel=7, pad=1,stride=7
@@ -143,10 +144,10 @@ class VisualDetectorWrapper(nn.Module):
 # -----------------------------------------------------------------------------
 def export_text_encoder_to_onnx_and_tflite():
     """
-    1. 导出 text_encoder.onnx（输入：[1,77]，输出：[1,1,512]）
-    2. 将 ONNX 转为 SavedModel，再转换为 text_encoder.tflite
+    1. Export text_encoder.onnx (input: [1,77], output: [1,1,512])
+    2. Convert ONNX to SavedModel, then to text_encoder.tflite
     """
-    print("\n=== STEP 1: 导出 text_encoder.onnx ===")
+    print("\n=== STEP 1: Exporting text_encoder.onnx ===")
     wrapper_te = TextEncoderWrapper(model).eval()
 
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
@@ -170,33 +171,33 @@ def export_text_encoder_to_onnx_and_tflite():
             opset_version=11,
             do_constant_folding=True
         )
-    print(f"[DONE] 已生成 {TEXT_ENCODER_ONNX}")
+    print(f"[DONE] Generated {TEXT_ENCODER_ONNX}")
 
-    print("\n=== STEP 2: 转 ONNX → SavedModel → TFLite (text_encoder) ===")
+    print("\n=== STEP 2: Converting ONNX → SavedModel → TFLite (text_encoder) ===")
     onnx_model = onnx.load(TEXT_ENCODER_ONNX)
     tf_rep = prepare(onnx_model)
     if os.path.isdir(TEXT_ENCODER_SAVED_DIR):
         tf.io.gfile.rmtree(TEXT_ENCODER_SAVED_DIR)
     tf_rep.export_graph(TEXT_ENCODER_SAVED_DIR)
-    print(f"[INFO] SavedModel 保存到：{TEXT_ENCODER_SAVED_DIR}")
+    print(f"[INFO] SavedModel saved to: {TEXT_ENCODER_SAVED_DIR}")
 
     converter_te = tf.lite.TFLiteConverter.from_saved_model(TEXT_ENCODER_SAVED_DIR)
     converter_te.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
     tflite_te = converter_te.convert()
     with open(TEXT_ENCODER_TFLITE, "wb") as f:
         f.write(tflite_te)
-    print(f"[DONE] 已生成 {TEXT_ENCODER_TFLITE}")
+    print(f"[DONE] Generated {TEXT_ENCODER_TFLITE}")
 
 # -----------------------------------------------------------------------------
-# 步骤3 & 4：导出 visual_detector.onnx 并转换为 TFLite
+# 步骤3 & 4：导出 visual_detector.onnx 并转换为 TFLite  
 # -----------------------------------------------------------------------------
 def export_visual_detector_to_onnx_and_tflite():
     """
-    1. 导出 visual_detector.onnx（输入：[1,3,640,640], [1,1,512], [1,1]）
-       Pooling 固定为常量，保证 TFLite 中拼接不会出现维度错配。
-    2. 将 ONNX 转为 SavedModel，再转换为 visual_detector.tflite
+    1. Export visual_detector.onnx (input: [1,3,640,640], [1,1,512], [1,1])
+       With fixed pooling parameters to ensure correct concat dimensions in TFLite
+    2. Convert ONNX to SavedModel, then to visual_detector.tflite
     """
-    print("\n=== STEP 3: 导出 visual_detector.onnx ===")
+    print("\n=== STEP 3: Exporting visual_detector.onnx ===")
     wrapper_vd = VisualDetectorWrapper(model).eval()
 
     dummy_image = torch.randn(1, 3, 640, 640)    # [1,3,640,640]
@@ -216,28 +217,28 @@ def export_visual_detector_to_onnx_and_tflite():
             opset_version=12,
             do_constant_folding=True
         )
-    print(f"[DONE] 已生成 {VISUAL_DETECTOR_ONNX}")
+    print(f"[DONE] Generated {VISUAL_DETECTOR_ONNX}")
 
-    print("\n=== STEP 4: 转 ONNX → SavedModel → TFLite (visual_detector) ===")
+    print("\n=== STEP 4: Converting ONNX → SavedModel → TFLite (visual_detector) ===")
     onnx_model = onnx.load(VISUAL_DETECTOR_ONNX)
     tf_rep = prepare(onnx_model)
     if os.path.isdir(VISUAL_DETECTOR_SAVED_DIR):
         tf.io.gfile.rmtree(VISUAL_DETECTOR_SAVED_DIR)
     tf_rep.export_graph(VISUAL_DETECTOR_SAVED_DIR)
-    print(f"[INFO] SavedModel 保存到：{VISUAL_DETECTOR_SAVED_DIR}")
+    print(f"[INFO] SavedModel saved to: {VISUAL_DETECTOR_SAVED_DIR}")
 
     converter_vd = tf.lite.TFLiteConverter.from_saved_model(VISUAL_DETECTOR_SAVED_DIR)
     converter_vd.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
     tflite_vd = converter_vd.convert()
     with open(VISUAL_DETECTOR_TFLITE, "wb") as f:
         f.write(tflite_vd)
-    print(f"[DONE] 已生成 {VISUAL_DETECTOR_TFLITE}")
+    print(f"[DONE] Generated {VISUAL_DETECTOR_TFLITE}")
 
 # -----------------------------------------------------------------------------
 # 步骤5：使用 TFLite 模型进行推理测试（全固定尺寸）
 # -----------------------------------------------------------------------------
 def run_tflite_inference():
-    """执行 TFLite 推理 - 已迁移至 TFLite_inference.py"""
+    """Run TFLite inference - moved to TFLite_inference.py"""
     pass
 
 # -----------------------------------------------------------------------------
@@ -246,4 +247,4 @@ def run_tflite_inference():
 if __name__ == "__main__":
     export_text_encoder_to_onnx_and_tflite()
     export_visual_detector_to_onnx_and_tflite()
-    print("\n[INFO] 模型导出完成,请使用 TFLite_inference.py 进行推理测试\n")
+    print("\n[INFO] Model export complete, use TFLite_inference.py for inference testing\n")
