@@ -1,3 +1,4 @@
 *.tflite filter=lfs diff=lfs merge=lfs -text
 text_encoder.tflite filter=lfs diff=lfs merge=lfs -text
 visual_detector.tflite filter=lfs diff=lfs merge=lfs -text
+*.mlmodel filter=lfs diff=lfs merge=lfs -text
