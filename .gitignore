@@ -1,2 +1,3 @@
-./coreml/*
-./coreml/
+/coreml/
+*.tflite
+*.bin
