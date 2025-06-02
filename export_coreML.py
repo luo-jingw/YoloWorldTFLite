@@ -11,21 +11,21 @@ from mmengine.config import Config
 from mmengine.runner import Runner
 from mmdet.registry import MODELS
 
-# —— 全局配置 —— #
-os.environ["CUDA_VISIBLE_DEVICES"] = ""              # 强制使用 CPU
+# —— Global Configuration —— #
+os.environ["CUDA_VISIBLE_DEVICES"] = ""              # Force CPU usage
 device = torch.device("cpu")
 
-# 请根据实际情况调整以下路径
+# Please adjust the following paths according to actual situation
 CFG_PATH   = "configs/pretrain_v1/yolo_world_x_dual_vlpan_l2norm_2e-3_100e_4x8gpus_obj365v1_goldg_train_lvis_minival.py"
 CKPT_PATH  = "pretrained_weights/yolo_world_x_clip_base_dual_vlpan_2e-3adamw_32xb16_100e_o365_goldg_cc3mlite_train_pretrained-8cf6b025.pth"
-# 导出文件名
+# Export filenames
 TEXT_ENCODER_COREML     = "text_encoder.mlpackage"
 VISUAL_DETECTOR_COREML  = "visual_detector.mlpackage"
 
-# 文本示例（类别数固定为 1）
+# Text example (number of categories fixed to 1)
 TEST_TEXT = "bottle"
 
-# —— Step 0：加载并构建 YOLO-World PyTorch 模型 —— #
+# —— Step 0: Load and build YOLO-World PyTorch model —— #
 cfg = Config.fromfile(CFG_PATH)
 cfg.work_dir = "."
 cfg.load_from = CKPT_PATH
@@ -40,15 +40,15 @@ model.load_state_dict(checkpoint["state_dict"])
 model.eval()
 
 
-# —— Step 1：定义 TextEncoderWrapper —— #
+# —— Step 1: Define TextEncoderWrapper —— #
 class TextEncoderWrapper(torch.nn.Module):
     """
-    从 YOLO-World 中提取 CLIP 文本编码器：
-      输入：
+    Extract CLIP text encoder from YOLO-World:
+      Input:
         - input_ids      : Tensor[1, 77] (int64)
         - attention_mask : Tensor[1, 77] (int64)
-      输出：
-        - text_feats     : Tensor[1, 1, 512] (float32, L2 归一化)
+      Output:
+        - text_feats     : Tensor[1, 1, 512] (float32, L2 normalized)
     """
     def __init__(self, full_model):
         super().__init__()
@@ -62,16 +62,16 @@ class TextEncoderWrapper(torch.nn.Module):
         return text_feat                         # [1, 1, 512]
 
 
-# —— Step 2：定义 VisualDetectorWrapper —— #
+# —— Step 2: Define VisualDetectorWrapper —— #
 class VisualDetectorWrapper(torch.nn.Module):
     """
-    从 YOLO-World 中提取视觉检测器：
-      输入：
+    Extract visual detector from YOLO-World:
+      Input:
         - image      : Tensor[1, 3, 640, 640] (float32)
         - text_feats : Tensor[1, 1, 512]       (float32)
         - txt_masks  : Tensor[1, 1]            (float32)
-      输出：
-        6 路张量 (float32)：
+      Output:
+        6 tensors (float32):
           - cls_score_0 : [1, 1, 80, 80]
           - cls_score_1 : [1, 1, 40, 40]
           - cls_score_2 : [1, 1, 20, 20]
@@ -85,7 +85,7 @@ class VisualDetectorWrapper(torch.nn.Module):
         self.neck        = full_model.neck
         self.head_module = full_model.bbox_head.head_module
 
-        # 硬编码池化层，保证 ONNX/CoreML 推理时尺寸与训练一致
+        # Hardcode pooling layers to ensure consistent dimensions during ONNX/CoreML inference
         pools = self.neck.text_enhancer.image_pools
         pools[0] = torch.nn.MaxPool2d(kernel_size=27, stride=27, padding=1)
         pools[1] = torch.nn.MaxPool2d(kernel_size=13, stride=13, padding=1)
@@ -93,7 +93,7 @@ class VisualDetectorWrapper(torch.nn.Module):
 
     def forward(self, image, text_feats, txt_masks):
         img_feats   = self.image_model(image)             # [(1,C1,80,80), (1,C2,40,40), (1,C3,20,20)]
-        fused_feats = self.neck(img_feats, text_feats)    # 列表：3 个尺度融合特征
+        fused_feats = self.neck(img_feats, text_feats)    # List: 3 scales of fused features
         cls_scores, bbox_preds = self.head_module(fused_feats, text_feats, txt_masks)
         return (
             cls_scores[0], cls_scores[1], cls_scores[2],
@@ -101,12 +101,12 @@ class VisualDetectorWrapper(torch.nn.Module):
         )
 
 
-# —— Step 3：将 TextEncoderWrapper 转换为 CoreML —— #
+# —— Step 3: Convert TextEncoderWrapper to CoreML —— #
 def convert_text_encoder_to_coreml():
     """
-    直接使用 PyTorch Wrapper，将 TextEncoderWrapper 转为 CoreML (.mlmodel)。
-    输入：input_ids[1,77] (int64), attention_mask[1,77] (int64)
-    输出：text_feats[1,1,512] (float32)
+    Use PyTorch Wrapper to convert TextEncoderWrapper to CoreML (.mlpackage).
+    Input: input_ids[1,77] (int64), attention_mask[1,77] (int64)
+    Output: text_feats[1,1,512] (float32)
     """
     print("→ Converting TextEncoder (PyTorch) to CoreML...")
 
