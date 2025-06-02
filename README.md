@@ -11,22 +11,30 @@ This demo shows how to perform object detection using the TFLite version of YOLO
 ## Pre-trained Models
 The pre-trained model weights can be found in [YOLO-World/configs/pretrain_v1/README.md] or [./pretrained_v1.md]
 
-## Directory Structure
 ```
 demo/TFLite_demo/
-├── export.py               # Model export script
-├── TFLite_inference.py    # TFLite inference implementation
-├── README.md              # Documentation
-├── sample_images/         # Example images
+├── detection_result.jpg
+├── export_coreML.py
+├── export_onnx_tflite.py
+├── output.jpg
+├── pretrained_v1.md
+├── README.md
+├── sample_images/
 │   ├── bottles.png
 │   ├── bus.jpg
 │   ├── desk.png
-│   └── ...
-└── tokenizer/            # CLIP tokenizer files
-    ├── merges.txt
-    ├── tokenizer.json
-    ├── vocab.json
-    └── ...
+│   ├── desk_test.png
+│   ├── image.png
+│   └── zidane.jpg
+├── text_encoder.tflite
+├── TFLite_inference.py
+├── tokenizer/
+│   ├── merges.txt
+│   ├── special_tokens_map.json
+│   ├── tokenizer_config.json
+│   ├── tokenizer.json
+│   └── vocab.json
+└── visual_detector.tflite
 ```
 
 ## Model Components
